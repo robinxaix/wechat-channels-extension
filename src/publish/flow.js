@@ -127,6 +127,18 @@
       });
   }
 
+  /** 干跑后回读页面真实值，确认填表确实生效（供干跑预览展示）。 */
+  function readBack() {
+    var t = S.getShortTitleInput();
+    var d = S.getDescEditor();
+    var o = S.getOriginalCheckbox();
+    return {
+      title: t ? t.value || '' : '(未定位)',
+      desc: d ? (d.innerText || '').slice(0, 40) : '(未定位)',
+      original: o ? !!o.checked : false,
+    };
+  }
+
   /** 读取发表结果：URL 跳转到 post/list 视为成功；否则看页面是否有成功/失败提示文案。 */
   function detectResult() {
     if (/post\/list/.test(location.href)) return { ok: true, how: 'navigated-to-list' };
@@ -201,11 +213,18 @@
       onStatus('info', '已填充短标题与描述' + (spec.original ? '、已勾选原创声明' : '') + '。');
     }
 
-    // 4) 干跑：到此为止，不点发表
+    // 4) 干跑：到此为止，不点发表，但回读页面真实值 + 展示兜底 post_create 请求体
     if (!real) {
+      var rb = readBack();
       var preview = L.buildPublishBody(spec, {});
-      onStatus('ok', '【干跑】已注入视频+填表，未真正发表。\n预计 post_create 关键字段：\n' +
-        'mpTitle=' + spec.title + '\ndescription=' + String(spec.description).slice(0, 40) + '…\noriginalFlag=' + (spec.original ? 1 : 0));
+      onStatus(
+        'ok',
+        '【干跑】已注入视频+填表，未真正发表。\n' +
+          '页面回读 → 短标题：「' + rb.title + '」 | 描述：「' + rb.desc + (rb.desc.length >= 40 ? '…' : '') +
+          '」 | 原创：' + (rb.original ? '是' : '否') + '\n' +
+          'post_create 将发送（兜底直连方案）：\n' +
+          JSON.stringify(preview, null, 2).slice(0, 900),
+      );
       return { ok: true, dryRun: true, missing: filled.missing };
     }
 

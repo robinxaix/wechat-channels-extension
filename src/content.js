@@ -145,7 +145,7 @@
 
   var launcher = document.createElement('button');
   launcher.className = 'launcher';
-  launcher.textContent = '评论助手';
+  launcher.textContent = '视频号助手';
   launcher.onclick = function () {
     panel.style.display = 'flex';
     launcher.style.display = 'none';
