@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "视频号评论助手",
+  "version": "0.2.1",
+  "description": "在视频号助手后台读取评论数为 0 的视频（含完整描述），把外部 AI 生成的评论一键提交；并内置发布页侦察模式（dev）。",
+  "icons": {
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://channels.weixin.qq.com/*"],
+      "js": ["src/lib.js", "src/content.js", "src/recon.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/recon-main.js"],
+      "matches": ["https://channels.weixin.qq.com/*"]
+    }
+  ]
+}
