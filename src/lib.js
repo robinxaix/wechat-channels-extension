@@ -13,6 +13,12 @@
   var COMMENT_PAGE_URL = 'https://channels.weixin.qq.com/micro/interaction/comment';
   var ORIGIN = 'https://channels.weixin.qq.com';
 
+  // 发布相关（来自 recon-report (3) 确证）：content 域，非 interaction 域。
+  var PUBLISH_CREATE_PAGE_URL = 'https://channels.weixin.qq.com/micro/content/post/create';
+  var POST_CLIP_VIDEO_PATH = '/micro/content/cgi-bin/mmfinderassistant-bin/post/post_clip_video';
+  var POST_CLIP_VIDEO_RESULT_PATH = '/micro/content/cgi-bin/mmfinderassistant-bin/post/post_clip_video_result';
+  var POST_CREATE_PATH = '/micro/content/cgi-bin/mmfinderassistant-bin/post/post_create';
+
   var TITLE_PATHS = ['desc.shortTitle.0.shortTitle', 'desc.title', 'title', 'objectDesc.title'];
   var DESCRIPTION_PATHS = ['desc.description', 'objectDesc.description', 'description'];
   var ID_PATHS = ['objectId', 'object_id', 'exportId', 'finderObjectId', 'postId', 'post_id', 'id'];
@@ -128,13 +134,101 @@
     return crypto.randomUUID();
   }
 
-  /** 规范化接口地址：刷新 _rid，并补齐缺失的 _aid / _pageUrl。 */
-  function buildEndpointUrl(path) {
+  /** 规范化接口地址：刷新 _rid，并补齐缺失的 _aid / _pageUrl。opts.pageUrl 可覆盖默认页面。 */
+  function buildEndpointUrl(path, opts) {
+    opts = opts || {};
     var url = new URL(/^https?:/i.test(path) ? path : ORIGIN + path);
     url.searchParams.set('_rid', newRid());
     if (!url.searchParams.get('_aid')) url.searchParams.set('_aid', uuid());
-    if (!url.searchParams.get('_pageUrl')) url.searchParams.set('_pageUrl', COMMENT_PAGE_URL);
+    if (opts.pageUrl) url.searchParams.set('_pageUrl', opts.pageUrl);
+    else if (!url.searchParams.get('_pageUrl')) url.searchParams.set('_pageUrl', COMMENT_PAGE_URL);
     return url.pathname + url.search;
+  }
+
+  /** 同源请求：自动带上当前登录 Cookie（浏览器环境）。 */
+  async function postJson(path, body, opts) {
+    opts = opts || {};
+    var res = await fetch(buildEndpointUrl(path, opts), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/plain, */*',
+      },
+      body: JSON.stringify(body),
+    });
+    var text = await res.text();
+    var json;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      json = undefined;
+    }
+    return { status: res.status, text: text, json: json };
+  }
+
+  /** 校验发布规格：短标题 ≤16 字、描述非空且 ≤1000 字、原创/合集/话题可选。 */
+  function validatePublishSpec(spec) {
+    var errors = [];
+    spec = spec || {};
+    var title = String(spec.title == null ? '' : spec.title).trim();
+    if (!title) errors.push('短标题不能为空');
+    else if ([...title].length > 16) errors.push('短标题超过 16 字（当前 ' + [...title].length + '）');
+    var desc = String(spec.description == null ? '' : spec.description);
+    if (!desc.trim()) errors.push('描述不能为空');
+    else if (desc.length > 1000) errors.push('描述超过 1000 字（当前 ' + desc.length + '）');
+    if (spec.original != null && typeof spec.original !== 'boolean') errors.push('original 必须是布尔');
+    return { ok: errors.length === 0, errors: errors };
+  }
+
+  /**
+   * 构造 post_create 请求体（兜底直连方案用；主路径是页面驱动：注入 File 让页面自己上传+转码，本扩展只填表+点发表）。
+   * derived 来自页面上传/转码结果：{ videoClipTaskId, traceInfo, mediaUrl, location }。
+   */
+  function buildPublishBody(spec, derived) {
+    derived = derived || {};
+    var topics = (spec.topics || []).map(function (t) {
+      return String(t);
+    });
+    var topicXml =
+      '<finder><version>1</version><valuecount>' +
+      topics.length +
+      '</valuecount><style><at></at></style>' +
+      topics
+        .map(function (t, i) {
+          return '<value' + i + '><![CDATA[' + t + ']]></value' + i + '>';
+        })
+        .join('') +
+      '</finder>';
+    var topic = { finderTopicInfo: topicXml };
+    if (spec.collectionId) {
+      topic.collectionId = spec.collectionId;
+      topic.collectionName = spec.collectionName || '';
+    }
+    return {
+      objectType: 0,
+      longitude: 0,
+      latitude: 0,
+      feedLongitude: 0,
+      feedLatitude: 0,
+      originalFlag: spec.original ? 1 : 0,
+      topics: [],
+      isFullPost: 1,
+      handleFlag: 2,
+      videoClipTaskId: String(derived.videoClipTaskId || ''),
+      traceInfo: derived.traceInfo || { traceKey: '', uploadCdnStart: 0, uploadCdnEnd: 0 },
+      objectDesc: {
+        mpTitle: String(spec.title || ''),
+        description: String(spec.description || ''),
+        extReading: {},
+        mediaType: 4,
+        location: derived.location || { latitude: 0, longitude: 0, city: '', poiClassifyId: '' },
+        topic: topic,
+        event: {},
+        mentionedUser: [],
+        media: derived.mediaUrl ? [{ url: derived.mediaUrl }] : [],
+      },
+    };
   }
 
   function buildPostListBody(opts) {
@@ -218,6 +312,10 @@
     POST_LIST_PATH: POST_LIST_PATH,
     COMMENT_CREATE_PATH: COMMENT_CREATE_PATH,
     COMMENT_PAGE_URL: COMMENT_PAGE_URL,
+    PUBLISH_CREATE_PAGE_URL: PUBLISH_CREATE_PAGE_URL,
+    POST_CLIP_VIDEO_PATH: POST_CLIP_VIDEO_PATH,
+    POST_CLIP_VIDEO_RESULT_PATH: POST_CLIP_VIDEO_RESULT_PATH,
+    POST_CREATE_PATH: POST_CREATE_PATH,
     getByPath: getByPath,
     pickField: pickField,
     deepFind: deepFind,
@@ -228,6 +326,9 @@
     buildEndpointUrl: buildEndpointUrl,
     buildPostListBody: buildPostListBody,
     buildCommentBody: buildCommentBody,
+    postJson: postJson,
+    validatePublishSpec: validatePublishSpec,
+    buildPublishBody: buildPublishBody,
     readErrCode: readErrCode,
     isLoginError: isLoginError,
     readBaseRespCode: readBaseRespCode,

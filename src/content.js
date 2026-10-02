@@ -127,6 +127,13 @@
     '.item .res{margin-top:6px;font-size:11px;white-space:pre-wrap;word-break:break-all}',
     '.res.ok{color:#0aa050}.res.err{color:#e54545}.res.warn{color:#e6a23c}.res.info{color:#646a73}',
     '.empty{color:#8a9099;text-align:center;padding:20px 0}',
+    '.tabs{display:flex;gap:4px;padding:8px 12px 0}',
+    '.tab{padding:6px 12px;border:none;background:#f2f3f5;border-radius:8px 8px 0 0;font-size:12px;cursor:pointer;color:#4a5058}',
+    '.tab.on{background:#0aa050;color:#fff}',
+    '.hint.p{font-size:11px;color:#e6a23c;line-height:1.5;margin-bottom:8px}',
+    '.prow{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;font-size:12px;color:#4a5058}',
+    '.prow input,.prow textarea{border:1px solid #dcdfe6;border-radius:8px;padding:8px;font-size:12px;color:#1f2329;width:100%}',
+    '.prow textarea{min-height:54px;resize:vertical}',
   ].join('');
 
   var host = document.createElement('div');
@@ -149,9 +156,13 @@
   panel.className = 'panel';
   panel.style.display = 'none';
   panel.innerHTML = [
-    '<div class="bar"><strong>视频号评论助手</strong><span class="grow"></span>',
+    '<div class="bar"><strong>视频号助手</strong><span class="grow"></span>',
     '<button data-act="close">收起</button></div>',
-    '<div class="body">',
+    '<div class="tabs">',
+    '<button class="tab on" data-tab="comment">评论助手</button>',
+    '<button class="tab" data-tab="publish">发布助手</button>',
+    '</div>',
+    '<div class="body" data-view="comment">',
     '<div class="row">',
     '<button class="act primary" data-act="fetch">拉取 0 评论视频</button>',
     '<button class="act" data-act="export">复制列表 JSON</button>',
@@ -159,6 +170,17 @@
     '<label class="dry"><input type="checkbox" data-act="dry" checked> 干跑（只预览请求体，不提交）</label>',
     '<div class="status" data-el="status">点击「拉取 0 评论视频」开始。评论正文由外部 AI 生成后粘贴到下方。</div>',
     '<div class="list" data-el="list"></div>',
+    '</div>',
+    '<div class="body" data-view="publish" style="display:none">',
+    '<div class="hint p">⚠️ 仅对你本人账号、且仅对自有内容使用。发表前需二次确认；默认干跑不真正发表。</div>',
+    '<label class="dry"><input type="checkbox" data-act="pdry" checked> 干跑（只注入视频+填表，不真正发表）</label>',
+    '<div class="prow"><span>视频文件</span><input type="file" data-el="videofile" accept="video/mp4,video/*"></div>',
+    '<div class="prow"><span>短标题（≤16 字）</span><input type="text" data-el="ptitle" maxlength="16" placeholder="填写短标题有机会获得更多流量"></div>',
+    '<div class="prow"><span>描述</span><textarea data-el="pdesc" placeholder="视频描述正文"></textarea></div>',
+    '<label class="dry"><input type="checkbox" data-act="poriginal"> 声明原创</label>',
+    '<div class="row"><button class="act primary" data-act="pgo">注入视频并填表（干跑预览）</button></div>',
+    '<div class="row"><button class="act" data-act="ppublish">确认发表</button></div>',
+    '<div class="status res info" data-el="pstatus">在发布页打开发布助手，选视频、填标题描述，先「干跑预览」确认无误，再「确认发表」。</div>',
     '</div>',
   ].join('');
   root.appendChild(panel);
@@ -175,6 +197,61 @@
   panel.querySelector('[data-act=dry]').onchange = function (e) {
     dryRun = e.target.checked;
   };
+
+  // ---- 发布助手 Tab ----
+  panel.querySelectorAll('[data-tab]').forEach(function (tab) {
+    tab.onclick = function () {
+      panel.querySelectorAll('[data-tab]').forEach(function (t) {
+        t.classList.remove('on');
+      });
+      tab.classList.add('on');
+      var name = tab.getAttribute('data-tab');
+      panel.querySelectorAll('[data-view]').forEach(function (v) {
+        v.style.display = v.getAttribute('data-view') === name ? 'block' : 'none';
+      });
+    };
+  });
+
+  var publishStatusEl = panel.querySelector('[data-el=pstatus]');
+  var vfileEl = panel.querySelector('[data-el=videofile]');
+  var ptitleEl = panel.querySelector('[data-el=ptitle]');
+  var pdescEl = panel.querySelector('[data-el=pdesc]');
+  var pdryEl = panel.querySelector('[data-act=pdry]');
+  var poriginalEl = panel.querySelector('[data-act=poriginal]');
+
+  function setPStatus(level, text) {
+    publishStatusEl.className = 'status res ' + (level || 'info');
+    publishStatusEl.textContent = text;
+  }
+
+  function readPublishSpec() {
+    return {
+      title: (ptitleEl.value || '').trim(),
+      description: pdescEl.value || '',
+      original: !!poriginalEl.checked,
+    };
+  }
+
+  var P = globalThis.WXCH_PUBLISH;
+  if (!P) {
+    setPStatus('warn', '发布模块未加载（WXCH_PUBLISH 缺失）。请确认 manifest 已包含 publish/selectors.js 与 publish/flow.js。');
+  } else {
+    panel.querySelector('[data-act=pgo]').onclick = async function () {
+      var spec = readPublishSpec();
+      var file = vfileEl.files && vfileEl.files[0] ? vfileEl.files[0] : null;
+      await P.publishFlow(spec, { file: file, real: false, onStatus: setPStatus });
+    };
+    panel.querySelector('[data-act=ppublish]').onclick = async function () {
+      if (pdryEl.checked) {
+        setPStatus('warn', '当前为干跑模式，「确认发表」不会真正发表。先取消「干跑」勾选，再点确认发表。');
+        return;
+      }
+      var spec = readPublishSpec();
+      var file = vfileEl.files && vfileEl.files[0] ? vfileEl.files[0] : null;
+      if (!window.confirm('确认要把该视频发表到你的视频号？此操作不可撤销。\n标题：' + spec.title)) return;
+      await P.publishFlow(spec, { file: file, real: true, onStatus: setPStatus });
+    };
+  }
 
   function setStatus(text) {
     statusEl.textContent = text;

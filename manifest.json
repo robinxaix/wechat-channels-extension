@@ -9,7 +9,7 @@
   "content_scripts": [
     {
       "matches": ["https://channels.weixin.qq.com/*"],
-      "js": ["src/lib.js", "src/content.js", "src/recon.js"],
+      "js": ["src/lib.js", "src/publish/selectors.js", "src/publish/flow.js", "src/content.js", "src/recon.js"],
       "run_at": "document_idle",
       "all_frames": true
     }
