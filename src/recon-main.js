@@ -5,8 +5,10 @@
  * 扩展默认内容脚本跑在隔离世界，patch 不到页面的 window.fetch / XMLHttpRequest。
  * 这里注入到主世界完成拦截，再 postMessage 回隔离世界的 recon.js 汇总。
  *
- * 仅当收到 `{__WXCH_RECON_CMD__:'start'}` 才开始记录；
- * 匹配 url 含 upload/publish/post/create/draft/cos/myqcloud/finder/media/video/cover/image 的请求。
+ * 仅当收到 `{__WXCH_RECON_CMD__:'start'}` 才开始记录。
+ * 捕获规则（见 shouldCapture）：写操作（POST/PUT/PATCH/DELETE）全收；GET 仅当 URL 明确涉及
+ * 上传/发表（upload/publish/post/create/draft/cos/myqcloud/finder）。并排除 WeChat 埋点信标
+ *（路径含 /helper/、mmdata、merlin、beacon、report_），避免把 100+ 条埋点噪声塞进报告。
  */
 (function () {
   'use strict';
@@ -15,8 +17,19 @@
   window.__WXCH_RECON_MAIN__ = true;
 
   var ENABLED = false;
-  var INTEREST =
-    /upload|publish|post[/_-]|create|draft|cos|myqcloud|finder|object|media|video|cover|image|material/i;
+  // 仅记录「写操作（POST/PUT/PATCH/DELETE）」或「明确与上传/发表相关」的请求。
+  // 宽泛令牌（object/media/image/cover/video）已移除，避免匹配到埋点信标。
+  var INTEREST = /upload|publish|post[/_-]|create|draft|\bcos\b|myqcloud|finder/i;
+  // 排除 WeChat 埋点信标：路径含 helper / mmdata / merlin / beacon / report_ 的 GET 噪声。
+  // 注意 mmfinderassistant-bin 既承载真实发表 cgi 也承载 helper 埋点，靠 /helper/ 子路径区分。
+  var EXCLUDE = /(\/helper\/|mmdata|merlin|beacon|report_|cgi-bin.*\bhelper\b)/i;
+
+  function shouldCapture(method, url) {
+    if (!ENABLED) return false;
+    if (EXCLUDE.test(url || '')) return false;
+    if (/^(POST|PUT|PATCH|DELETE)$/i.test(method || '')) return true; // 写操作全收
+    return INTEREST.test(url || ''); // GET 仅当 URL 明确相关
+  }
 
   function post(entry) {
     try {
@@ -30,6 +43,12 @@
   function truncate(v, n) {
     n = n || 4000;
     if (v == null) return v;
+    // 二进制/流式请求体（Blob / FormData / ArrayBuffer / ReadableStream）：不塞字节，只记类型与大小。
+    if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+      var name = (v.constructor && v.constructor.name) || 'Object';
+      var size = v.size != null ? v.size : (v.byteLength != null ? v.byteLength : undefined);
+      return '[binary:' + name + (size != null ? ' bytes=' + size : '') + ']';
+    }
     var s = typeof v === 'string' ? v : JSON.stringify(v);
     if (s == null) return s;
     return s.length > n ? s.slice(0, n) + '…[truncated]' : s;
@@ -56,7 +75,7 @@
       var t0 = Date.now();
       return origFetch(input, init).then(
         function (resp) {
-          if (ENABLED && INTEREST.test(url)) {
+          if (shouldCapture(method, url)) {
             var clone = resp.clone();
             clone
               .text()
@@ -78,7 +97,7 @@
           return resp;
         },
         function (err) {
-          if (ENABLED && INTEREST.test(url)) {
+          if (shouldCapture(method, url)) {
             post({
               kind: 'fetch',
               url: url,
@@ -108,7 +127,7 @@
     var url = this.__wxch_url;
     var method = this.__wxch_method;
     this.addEventListener('loadend', function () {
-      if (ENABLED && INTEREST.test(url || '')) {
+      if (shouldCapture(method, url || '')) {
         var respText = '';
         try {
           respText = self.responseText;

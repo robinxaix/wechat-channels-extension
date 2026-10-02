@@ -151,9 +151,11 @@
         });
       }
 
-      // 按钮（发表 / 发布 / 提交）
-      var txt = (el.innerText || el.textContent || '').trim().slice(0, 30);
-      if (/发表|发布|提交|确定|save|publish/i.test(txt)) {
+      // 按钮（发表 / 发布 / 提交）：仅真实可点击控件，排除大容器与长文本误报
+      var txt = (el.innerText || el.textContent || '').trim().slice(0, 40);
+      var cls = (el.className && typeof el.className === 'string') ? el.className : '';
+      var isBtnLike = tag === 'button' || tag === 'a' || role === 'button' || /btn/.test(cls);
+      if (isBtnLike && txt.length <= 40 && el.children.length <= 5 && /发表|发布|提交|确定|save|publish/i.test(txt)) {
         map.publishButtons.push({ selector: bestSelector(el), text: txt, disabled: el.disabled, visible: isVisible(el), frame: frame, tag: tag });
       }
     }
@@ -165,6 +167,8 @@
       var els = doc.querySelectorAll('*');
       for (var i = 0; i < els.length; i++) {
         var el = els[i];
+        var elId = el.id || (el.getAttribute && el.getAttribute('id')) || '';
+        if (/^wxch/i.test(elId)) continue; // 跳过本扩展自身的 Shadow DOM（评论助手 / 侦察面板），避免误报
         classify(el, frame);
         if (el.shadowRoot) walk(el.shadowRoot);
       }
