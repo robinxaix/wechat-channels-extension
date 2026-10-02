@@ -20,7 +20,8 @@
 
   function post(entry) {
     try {
-      window.postMessage({ __WXCH_RECON_NET__: true, entry: entry }, '*');
+      // 发到顶层窗口，确保来自 iframe 的请求也能被顶层侦察面板汇总
+      (window.top || window).postMessage({ __WXCH_RECON_NET__: true, entry: entry }, '*');
     } catch (e) {
       /* 忽略 */
     }

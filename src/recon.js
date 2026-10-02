@@ -97,6 +97,7 @@
     var map = {
       at: new Date().toISOString(),
       url: location.href,
+      iframes: [],
       fileInputs: [],
       titleCandidates: [],
       descCandidates: [],
@@ -106,66 +107,84 @@
       allInputs: [],
     };
 
-    // 文件输入（含隐藏）
-    document.querySelectorAll('input[type=file]').forEach(function (el) {
-      map.fileInputs.push({
-        selector: bestSelector(el),
-        id: el.id,
-        name: el.name,
-        accept: el.accept,
-        multiple: el.multiple,
-        visible: isVisible(el),
-        parent: bestSelector(el.parentElement),
-      });
-    });
+    function classify(el, frame) {
+      var tag = (el.tagName || '').toLowerCase();
+      var ph = (el.getAttribute && el.getAttribute('placeholder')) || '';
+      var nb = nearbyText(el);
+      var ctxLow = (ph + ' ' + nb).toLowerCase();
 
-    // 文本输入 / textarea（标题 / 描述候选）
-    document.querySelectorAll('input[type=text], input:not([type]), textarea').forEach(function (el) {
-      var info = {
-        selector: bestSelector(el),
-        id: el.id,
-        name: el.name,
-        placeholder: (el.placeholder || '').slice(0, 60),
-        visible: isVisible(el),
-      };
-      map.allInputs.push(info);
-      var ctx = ((el.placeholder || '') + ' ' + nearbyText(el)).toLowerCase();
-      if (/标题|title/.test(ctx)) map.titleCandidates.push(info);
-      if (/描述|简介|desc|description/.test(ctx)) map.descCandidates.push(info);
-    });
+      // 文件输入（含隐藏）
+      if (tag === 'input' && (el.type === 'file' || (el.getAttribute && el.getAttribute('type') === 'file'))) {
+        map.fileInputs.push({
+          selector: bestSelector(el), id: el.id, name: el.name,
+          accept: el.accept, multiple: el.multiple, visible: isVisible(el),
+          parent: bestSelector(el.parentElement), frame: frame,
+        });
+      }
 
-    // contenteditable（描述常为富文本）
-    document.querySelectorAll('[contenteditable="true"], [contenteditable=""], [contenteditable=true]').forEach(function (el) {
-      var info = {
-        selector: bestSelector(el),
-        tag: (el.tagName || '').toLowerCase(),
-        text: (el.innerText || '').slice(0, 40),
-        visible: isVisible(el),
-      };
-      map.descCandidates.push(info);
-      if (/标题|title/.test(nearbyText(el).toLowerCase())) map.titleCandidates.push(info);
-    });
+      // 文本输入 / textarea（标题 / 描述 / 定时候选）
+      if (tag === 'textarea' || (tag === 'input' && (!el.type || el.type === 'text' || el.type === 'search'))) {
+        var info = {
+          selector: bestSelector(el), id: el.id, name: el.name,
+          placeholder: (el.placeholder || '').slice(0, 60), visible: isVisible(el), frame: frame,
+        };
+        map.allInputs.push(info);
+        if (/标题|title/.test(ctxLow)) map.titleCandidates.push(info);
+        if (/描述|简介|desc|description/.test(ctxLow)) map.descCandidates.push(info);
+        if (/定时|时间|date|schedule/.test(ctxLow)) map.scheduleCandidates.push(info);
+      }
 
-    // 勾选 / 开关（原创声明、标注）
-    document.querySelectorAll('input[type=checkbox], input[type=radio], [role=switch], [role=checkbox]').forEach(function (el) {
-      map.declareCandidates.push({
-        selector: bestSelector(el),
-        id: el.id,
-        name: el.name,
-        label: nearestLabel(el),
-        checked: el.checked,
-        visible: isVisible(el),
-      });
-    });
+      // contenteditable（描述常为富文本）
+      var ce = el.getAttribute && el.getAttribute('contenteditable');
+      if (ce != null && ce !== 'false') {
+        var ci = { selector: bestSelector(el), tag: tag, text: (el.innerText || '').slice(0, 40), visible: isVisible(el), frame: frame };
+        map.descCandidates.push(ci);
+        if (/标题|title/.test(nb.toLowerCase())) map.titleCandidates.push(ci);
+      }
 
-    // 按钮（发表 / 发布 / 提交）
-    document.querySelectorAll('button, [role=button], a[class*=btn], span[class*=btn]').forEach(function (el) {
+      // 勾选 / 开关（原创声明、标注）
+      var role = (el.getAttribute && el.getAttribute('role')) || '';
+      if ((tag === 'input' && (el.type === 'checkbox' || el.type === 'radio')) || role === 'switch' || role === 'checkbox') {
+        map.declareCandidates.push({
+          selector: bestSelector(el), id: el.id, name: el.name,
+          label: nearestLabel(el), checked: el.checked, visible: isVisible(el), frame: frame,
+        });
+      }
+
+      // 按钮（发表 / 发布 / 提交）
       var txt = (el.innerText || el.textContent || '').trim().slice(0, 30);
       if (/发表|发布|提交|确定|save|publish/i.test(txt)) {
-        map.publishButtons.push({ selector: bestSelector(el), text: txt, disabled: el.disabled, visible: isVisible(el) });
+        map.publishButtons.push({ selector: bestSelector(el), text: txt, disabled: el.disabled, visible: isVisible(el), frame: frame, tag: tag });
       }
-    });
+    }
 
+    // 递归穿透 Shadow DOM 与同源 iframe（视频号发布页的表单常在其中）
+    function walk(doc) {
+      if (!doc || !doc.querySelectorAll) return;
+      var frame = doc.URL || location.href;
+      var els = doc.querySelectorAll('*');
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        classify(el, frame);
+        if (el.shadowRoot) walk(el.shadowRoot);
+      }
+      var ifs = doc.querySelectorAll('iframe');
+      for (var j = 0; j < ifs.length; j++) {
+        var fr = ifs[j];
+        var src = fr.src || fr.getAttribute('src') || '';
+        try {
+          if (fr.contentDocument) {
+            walk(fr.contentDocument);
+            map.iframes.push({ src: src.slice(0, 160), scanned: true });
+          } else {
+            map.iframes.push({ src: src.slice(0, 160), scanned: false });
+          }
+        } catch (e) {
+          map.iframes.push({ src: src.slice(0, 160), crossOrigin: true });
+        }
+      }
+    }
+    walk(document);
     return map;
   }
 
@@ -228,7 +247,7 @@
     window.postMessage({ __WXCH_RECON_CMD__: cmd }, '*');
   }
 
-  if (!SHOW_PANEL) return; // 非视频号站点不注入面板
+  if (!SHOW_PANEL || window !== window.top) return; // 仅顶层框架显示面板；子框架只注入主世界抓包
 
   var CSS = [
     ':host{all:initial}',
