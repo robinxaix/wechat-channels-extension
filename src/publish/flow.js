@@ -139,6 +139,86 @@
     };
   }
 
+  /** 注入封面上传 input（视频上传完成后才有封面控件，故在上传后调用）。 */
+  async function injectCover(coverFile, onStatus) {
+    var ci = S.getCoverInput();
+    if (!ci) {
+      onStatus('warn', '未找到封面上传 input（可能封面控件在视频上传后才出现，或选择器待校准）。已跳过封面，可稍后手动选。');
+      return false;
+    }
+    try {
+      injectFile(ci, coverFile);
+      onStatus('info', '已注入封面文件「' + coverFile.name + '」，等待封面上传…');
+      return true;
+    } catch (e) {
+      onStatus('warn', '封面注入失败：' + (e && e.message ? e.message : e) + '（已跳过封面）');
+      return false;
+    }
+  }
+
+  /** 选合集（最佳实现：点开合集控件→在搜索框输入名称→点第一个匹配项）。 */
+  async function setCollection(name, onStatus) {
+    if (!name) return;
+    var trig = S.getCollectionTrigger();
+    if (!trig) {
+      onStatus('warn', '未找到合集触发控件（选择器待校准），合集请手动选。');
+      return;
+    }
+    trig.click();
+    await sleep(500);
+    var si = S.getCollectionSearchInput();
+    if (!si) {
+      onStatus('warn', '合集已展开但未找到搜索框，合集请手动选。');
+      return;
+    }
+    setNativeValue(si, name);
+    await sleep(700);
+    var opts = S.deepQueryAll('.ant-select-item-option, .weui-desktop-form__option, li, [role=option]');
+    var hit = null;
+    for (var i = 0; i < opts.length; i++) {
+      if (textOf(opts[i]).indexOf(name) >= 0) {
+        hit = opts[i];
+        break;
+      }
+    }
+    if (hit) {
+      hit.click();
+      onStatus('info', '已选择合集：「' + name + '」。');
+    } else {
+      onStatus('warn', '未在下拉中找到合集「' + name + '」，合集请手动选。');
+    }
+  }
+
+  /** 选定时发表（最佳实现：点「定时」radio→尝试填入时间）。 */
+  async function setSchedule(timeStr, onStatus) {
+    var radio = S.getScheduleRadio(true);
+    if (!radio) {
+      onStatus('warn', '未找到「定时」radio（选择器待校准），定时请手动选。');
+      return;
+    }
+    var wrap = radio.closest('.ant-radio-wrapper') || radio.closest('label') || radio;
+    wrap.click();
+    await sleep(500);
+    onStatus('info', '已选「定时」，时间请在弹出的选择器里选' + (timeStr ? '（尝试自动填入）' : '') + '。');
+    if (!timeStr) return;
+    var inputs = S.deepQueryAll('input[type=datetime-local], input[type=date], input[type=time]');
+    var ti = inputs.length ? inputs[0] : null;
+    if (!ti) {
+      var pop = S.deepQueryAll('.ant-picker-input input, .weui-desktop-form__datepicker input');
+      ti = pop.length ? pop[0] : null;
+    }
+    if (ti) {
+      try {
+        setNativeValue(ti, timeStr);
+        onStatus('info', '已尝试填入定时时间：' + timeStr + '（若页面是自定义选择器，可能仍需手动确认）。');
+      } catch (e) {
+        onStatus('warn', '定时时间填入失败，请手动选。');
+      }
+    } else {
+      onStatus('warn', '未找到时间输入控件，请手动在时间选择器里选。');
+    }
+  }
+
   /** 读取发表结果：URL 跳转到 post/list 视为成功；否则看页面是否有成功/失败提示文案。 */
   function detectResult() {
     if (/post\/list/.test(location.href)) return { ok: true, how: 'navigated-to-list' };
@@ -201,17 +281,25 @@
         onStatus('warn', '等待发表按钮启用超时：视频可能上传失败或页面结构有变。');
         return { ok: false, how: 'upload-timeout' };
       }
+      // 2.5) 视频上传完成后，封面控件才出现 → 注入封面（可选）
+      if (opts.coverFile) {
+        await injectCover(opts.coverFile, onStatus);
+      }
     } else {
       onStatus('info', '未提供视频文件，假定页面已有视频，直接填表。');
     }
 
-    // 3) 填表
+    // 3) 填表（短标题 / 描述 / 原创）
     var filled = fillForm(spec, onStatus);
     if (!filled.ok) {
       onStatus('warn', '部分字段未填：' + filled.missing.join('、') + '（仍会继续）。');
     } else {
       onStatus('info', '已填充短标题与描述' + (spec.original ? '、已勾选原创声明' : '') + '。');
     }
+
+    // 3.5) 合集 / 定时（可选，最佳实现）
+    if (spec.collection) await setCollection(spec.collection, onStatus);
+    if (spec.schedule) await setSchedule(spec.scheduleTime, onStatus);
 
     // 4) 干跑：到此为止，不点发表，但回读页面真实值 + 展示兜底 post_create 请求体
     if (!real) {

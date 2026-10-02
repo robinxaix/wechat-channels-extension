@@ -111,6 +111,46 @@
     return any.length ? any[0] : null;
   }
 
+  /** 封面上传 input：排除视频那个，取另一个 file input（最佳实现，依赖 UI 出现）。 */
+  function getCoverInput() {
+    var video = getFileInput();
+    var all = deepQueryAll('input[type=file]');
+    for (var i = 0; i < all.length; i++) {
+      if (all[i] !== video) return all[i];
+    }
+    // 兜底：第二个 ant-upload 内的 input
+    var uploads = deepQueryAll('span.ant-upload input[type=file]');
+    if (uploads.length > 1) return uploads[1];
+    return null;
+  }
+
+  /** 合集触发控件：文案含「合集」的可点击元素（最佳实现，antd Select 形态未知）。 */
+  function getCollectionTrigger() {
+    var cands = deepQueryAll('label, div, span, .ant-select, .weui-desktop-form__control');
+    for (var i = 0; i < cands.length; i++) {
+      var t = textOf(cands[i]);
+      if (t && /合集/.test(t) && t.length <= 20) {
+        var clickable =
+          cands[i].querySelector('input,button,.ant-select-selector,.weui-desktop-form__control') ||
+          cands[i];
+        return clickable;
+      }
+    }
+    return null;
+  }
+
+  /** 合集搜索框：点开合集后出现的输入（最佳实现）。 */
+  function getCollectionSearchInput() {
+    var inputs = deepQueryAll('input');
+    for (var i = 0; i < inputs.length; i++) {
+      var ph = inputs[i].getAttribute('placeholder') || '';
+      if (/合集|搜索/.test(ph) && /合集|搜索/.test(ph)) return inputs[i];
+    }
+    // 退而求其次：弹层内的第一个输入框
+    var pop = deepQueryAll('.ant-select-dropdown input, .weui-desktop-form__dropdown input');
+    return pop.length ? pop[0] : null;
+  }
+
   function getShortTitleInput() {
     return findInputByPlaceholder('填写短标题');
   }
@@ -159,6 +199,9 @@
     findCheckboxByLabel: findCheckboxByLabel,
     findButtonByText: findButtonByText,
     getFileInput: getFileInput,
+    getCoverInput: getCoverInput,
+    getCollectionTrigger: getCollectionTrigger,
+    getCollectionSearchInput: getCollectionSearchInput,
     getShortTitleInput: getShortTitleInput,
     getDescEditor: getDescEditor,
     getScheduleRadio: getScheduleRadio,

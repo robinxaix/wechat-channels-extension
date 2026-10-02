@@ -175,9 +175,13 @@
     '<div class="hint p">⚠️ 仅对你本人账号、且仅对自有内容使用。发表前需二次确认；默认干跑不真正发表。</div>',
     '<label class="dry"><input type="checkbox" data-act="pdry" checked> 干跑（只注入视频+填表，不真正发表）</label>',
     '<div class="prow"><span>视频文件</span><input type="file" data-el="videofile" accept="video/mp4,video/*"></div>',
+    '<div class="prow"><span>封面文件（可选）</span><input type="file" data-el="coverfile" accept="image/*"></div>',
     '<div class="prow"><span>短标题（≤16 字）</span><input type="text" data-el="ptitle" maxlength="16" placeholder="填写短标题有机会获得更多流量"></div>',
     '<div class="prow"><span>描述</span><textarea data-el="pdesc" placeholder="视频描述正文"></textarea></div>',
+    '<div class="prow"><span>合集名称（可选）</span><input type="text" data-el="pcollection" placeholder="如：价值投资—股东视角"></div>',
     '<label class="dry"><input type="checkbox" data-act="poriginal"> 声明原创</label>',
+    '<label class="dry"><input type="checkbox" data-act="pschedule"> 定时发表</label>',
+    '<div class="prow"><span>定时时间（可选）</span><input type="datetime-local" data-el="pschedtime"></div>',
     '<div class="row"><button class="act primary" data-act="pgo">注入视频并填表（干跑预览）</button></div>',
     '<div class="row"><button class="act" data-act="ppublish">确认发表</button></div>',
     '<div class="status res info" data-el="pstatus">在发布页打开发布助手，选视频、填标题描述，先「干跑预览」确认无误，再「确认发表」。</div>',
@@ -214,10 +218,14 @@
 
   var publishStatusEl = panel.querySelector('[data-el=pstatus]');
   var vfileEl = panel.querySelector('[data-el=videofile]');
+  var coverFileEl = panel.querySelector('[data-el=coverfile]');
   var ptitleEl = panel.querySelector('[data-el=ptitle]');
   var pdescEl = panel.querySelector('[data-el=pdesc]');
+  var pcollectionEl = panel.querySelector('[data-el=pcollection]');
+  var pschedTimeEl = panel.querySelector('[data-el=pschedtime]');
   var pdryEl = panel.querySelector('[data-act=pdry]');
   var poriginalEl = panel.querySelector('[data-act=poriginal]');
+  var pscheduleEl = panel.querySelector('[data-act=pschedule]');
 
   function setPStatus(level, text) {
     publishStatusEl.className = 'status res ' + (level || 'info');
@@ -229,6 +237,9 @@
       title: (ptitleEl.value || '').trim(),
       description: pdescEl.value || '',
       original: !!poriginalEl.checked,
+      collection: (pcollectionEl.value || '').trim() || undefined,
+      schedule: !!pscheduleEl.checked,
+      scheduleTime: (pschedTimeEl.value || '').trim() || undefined,
     };
   }
 
@@ -239,7 +250,8 @@
     panel.querySelector('[data-act=pgo]').onclick = async function () {
       var spec = readPublishSpec();
       var file = vfileEl.files && vfileEl.files[0] ? vfileEl.files[0] : null;
-      await P.publishFlow(spec, { file: file, real: false, onStatus: setPStatus });
+      var cover = coverFileEl.files && coverFileEl.files[0] ? coverFileEl.files[0] : null;
+      await P.publishFlow(spec, { file: file, coverFile: cover, real: false, onStatus: setPStatus });
     };
     panel.querySelector('[data-act=ppublish]').onclick = async function () {
       if (pdryEl.checked) {
@@ -248,8 +260,9 @@
       }
       var spec = readPublishSpec();
       var file = vfileEl.files && vfileEl.files[0] ? vfileEl.files[0] : null;
+      var cover = coverFileEl.files && coverFileEl.files[0] ? coverFileEl.files[0] : null;
       if (!window.confirm('确认要把该视频发表到你的视频号？此操作不可撤销。\n标题：' + spec.title)) return;
-      await P.publishFlow(spec, { file: file, real: true, onStatus: setPStatus });
+      await P.publishFlow(spec, { file: file, coverFile: cover, real: true, onStatus: setPStatus });
     };
   }
 
