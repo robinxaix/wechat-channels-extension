@@ -16,7 +16,9 @@
   if (window.__WXCH_RECON_MAIN__) return;
   window.__WXCH_RECON_MAIN__ = true;
 
-  var ENABLED = false;
+  // 注入即默认开启抓包：发布页本就是目标场景，且滤镜已剔除埋点噪声，
+  // 默认开可避免「用户忘了点开始抓包 / 注入就绪前就上传」导致的 0 条问题。
+  var ENABLED = true;
   // 仅记录「写操作（POST/PUT/PATCH/DELETE）」或「明确与上传/发表相关」的请求。
   // 宽泛令牌（object/media/image/cover/video）已移除，避免匹配到埋点信标。
   var INTEREST = /upload|publish|post[/_-]|create|draft|\bcos\b|myqcloud|finder/i;
@@ -155,4 +157,11 @@
       window.postMessage({ __WXCH_RECON_STATUS__: true, enabled: ENABLED }, '*');
     }
   });
+
+  // ---- 注入就绪自检：通知隔离世界面板主世界抓包已就绪（且默认已开启）----
+  try {
+    (window.top || window).postMessage({ __WXCH_RECON_READY__: true, enabled: ENABLED }, '*');
+  } catch (e) {
+    /* 忽略 */
+  }
 })();

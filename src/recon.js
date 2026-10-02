@@ -18,6 +18,7 @@
   var netLog = [];
   var domMap = null;
   var capturing = false;
+  var mainReady = false;
 
   // 主世界脚本（recon-main.js）注入：通过 web_accessible_resources 以 <script src> 注入到页面，
   // 规避 manifest 的 world 字段在旧版 Chrome 的兼容问题。失败仅影响网络抓包，DOM 扫描仍可用。
@@ -45,6 +46,10 @@
     if (e.data.__WXCH_RECON_NET__) {
       netLog.push(e.data.entry);
       if (statusEl) setStatus('已捕获网络请求 ' + netLog.length + ' 条。');
+    } else if (e.data.__WXCH_RECON_READY__) {
+      mainReady = true;
+      if (statusEl)
+        setStatus('主世界抓包脚本已注入 ✓，默认抓包已开启。直接去页面上传视频/点发表即可捕获接口。');
     }
   });
 
@@ -296,7 +301,7 @@
   panel.innerHTML = [
     '<div class="bar"><strong>发布页侦察模式</strong><span class="grow"></span><button data-act="close">收起</button></div>',
     '<div class="body">',
-    '<div class="hint">① 先「采集 DOM」拿选择器地图。② 点「开始抓包」，然后在页面里做一次真实上传/填标题/点发表（用于捕获接口）。③ 「导出报告」下载 recon-report.json（已同时复制剪贴板）。</div>',
+    '<div class="hint">① 面板打开后若显示「主世界已注入✓」，说明抓包已默认开启（无需点开始）。② 直接去页面「真实上传一个测试视频」并点「发表」（发表会弹原创声明确认层，一并点掉）——这些接口会被自动捕获。③ 点「导出报告」下载 recon-report.json（已同时复制剪贴板）。若导出后网络为空，说明主世界未注入成功，需刷新扩展重试。</div>',
     '<button class="act primary" data-act="dom">采集 DOM</button>',
     '<button class="act" data-act="start">开始抓包</button>',
     '<button class="act warn" data-act="stop">停止抓包</button>',
@@ -331,16 +336,26 @@
   panel.querySelector('[data-act=start]').onclick = function () {
     capturing = true;
     sendCmd('start');
-    setStatus('抓包中…（去页面做一次真实上传/发表）已捕获 ' + netLog.length + ' 条。');
+    setStatus('抓包中…（默认已开启，去页面做一次真实上传/发表）已捕获 ' + netLog.length + ' 条。');
   };
   panel.querySelector('[data-act=stop]').onclick = function () {
     capturing = false;
     sendCmd('stop');
-    setStatus('已停止抓包。共捕获 ' + netLog.length + ' 条网络请求。');
+    setStatus('已暂停抓包。共捕获 ' + netLog.length + ' 条网络请求（再点「开始抓包」可继续）。');
   };
   panel.querySelector('[data-act=export]').onclick = function () {
     var r = downloadReport();
-    setStatus('已导出 recon-report.json（含 DOM ' + (r.dom ? '已采集' : '未采集') + '，网络 ' + r.network.length + ' 条）。底部文本框也已填充，可手动复制。');
+    var warn = r.network.length === 0
+      ? ' ⚠️ 网络为空：请确认主世界已注入（状态栏应显示已注入✓）且上传动作在抓包开启后发生；否则刷新扩展重来。'
+      : '';
+    setStatus(
+      '已导出 recon-report.json（含 DOM ' +
+        (r.dom ? '已采集' : '未采集') +
+        '，网络 ' +
+        r.network.length +
+        ' 条）。底部文本框也已填充，可手动复制。' +
+        warn,
+    );
   };
   panel.querySelector('[data-act=copy]').onclick = function () {
     if (!jsonEl || !jsonEl.value) {
